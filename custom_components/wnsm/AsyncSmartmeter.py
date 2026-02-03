@@ -70,11 +70,11 @@ class AsyncSmartmeter:
         if len(zp) == 0:
             raise RuntimeError(f"Zaehlpunkt {zaehlpunkt} not found")
 
-        return (
-            translate_dict(zp[0], ATTRS_ZAEHLPUNKTE_CALL)
-            if len(zp) > 0
-            else None
-        )
+        # Prefer active contract if available
+        active_zp = [z for z in zp if z.get("isActive", True)]
+        chosen_zp = active_zp[0] if active_zp else zp[0]
+
+        return translate_dict(chosen_zp, ATTRS_ZAEHLPUNKTE_CALL)
 
     async def get_consumption(self, customer_id: str, zaehlpunkt: str, start_date: datetime):
         """Return 24h of hourly consumption starting from a date"""

@@ -38,7 +38,17 @@ class WienerNetzeSmartMeterCustomConfigFlow(config_entries.ConfigFlow, domain=DO
             for contract in contracts:
                 if "zaehlpunkte" in contract:
                     zaehlpunkte.extend(contract["zaehlpunkte"])
-        return zaehlpunkte
+        
+        # Deduplicate by zaehlpunktnummer, preferring active entries
+        zp_dict = {}
+        for zp in zaehlpunkte:
+            zp_nummer = zp.get("zaehlpunktnummer")
+            if zp_nummer:
+                # If we haven't seen this zaehlpunktnummer yet, or if the current one is active and the stored one isn't
+                if zp_nummer not in zp_dict or (zp.get("isActive", False) and not zp_dict[zp_nummer].get("isActive", False)):
+                    zp_dict[zp_nummer] = zp
+        
+        return list(zp_dict.values())
 
 
     async def async_step_user(self, user_input: Optional[dict[str, Any]] = None):

@@ -5,6 +5,7 @@ import logging
 from requests_mock import Mocker
 import datetime as dt
 from dateutil.relativedelta import relativedelta
+from urllib import parse
 
 from it import (
     expect_login,
@@ -14,6 +15,8 @@ from it import (
     verbrauch_raw_response,
     zaehlpunkt,
     zaehlpunkt_feeding,
+    zaehlpunkt_inactive,
+    multiple_contracts_response,
     enabled,
     disabled,
     mock_login_page,
@@ -23,6 +26,9 @@ from it import (
     mock_token,
     mock_get_api_key,
     expect_history, expect_bewegungsdaten, zaehlpunkt_response,
+    API_URL_B2C,
+    ACCESS_TOKEN,
+    B2C_API_KEY,
 )
 from wnsm.api.errors import SmartmeterConnectionError, SmartmeterLoginError, SmartmeterQueryError
 import wnsm.api.constants as const
@@ -435,3 +441,103 @@ def test_verbrauch_raw(requests_mock: Mocker):
     verbrauch = smartmeter().login().verbrauch(customer_id, zp, dateFrom)
 
     assert 7 == len(verbrauch['values'])
+
+
+@pytest.mark.usefixtures("requests_mock")
+def test_multiple_contracts_same_zaehlpunkt_prefers_active(requests_mock: Mocker):
+    """Test that get_zaehlpunkt prefers the active contract when the same zaehlpunkt appears in multiple contracts"""
+    expect_login(requests_mock)
+    
+    # Create same zaehlpunkt in two contracts: old (inactive) and new (active)
+    zp_nummer = "AT0010000000000000001000011111111"
+    zp_old = zaehlpunkt_inactive()
+    zp_old["zaehlpunktnummer"] = zp_nummer
+    zp_new = enabled(zaehlpunkt())
+    zp_new["zaehlpunktnummer"] = zp_nummer
+    
+    # Mock API to return multiple contracts with same zaehlpunkt
+    contracts = multiple_contracts_response([zp_old], [zp_new])
+    requests_mock.get(
+        parse.urljoin(API_URL_B2C, 'zaehlpunkte'),
+        request_headers={
+            'Authorization': f'Bearer {ACCESS_TOKEN}',
+            'X-Gateway-APIKey': B2C_API_KEY,
+        },
+        json=contracts
+    )
+    
+    sm = smartmeter().login()
+    customer_id, zp, anlagetype = sm.get_zaehlpunkt(zp_nummer)
+    
+    # Should use the NEW (active) contract's customer_id
+    assert customer_id == "9876543210"
+    assert zp == zp_nummer
+    assert anlagetype == const.AnlagenType.CONSUMING
+
+
+@pytest.mark.usefixtures("requests_mock")
+def test_multiple_contracts_same_zaehlpunkt_fallback_to_any(requests_mock: Mocker):
+    """Test that get_zaehlpunkt falls back to any match if none are active"""
+    expect_login(requests_mock)
+    
+    # Create same zaehlpunkt in two contracts: both inactive
+    zp_nummer = "AT0010000000000000001000011111111"
+    zp_old = zaehlpunkt_inactive()
+    zp_old["zaehlpunktnummer"] = zp_nummer
+    zp_newer = zaehlpunkt_inactive()
+    zp_newer["zaehlpunktnummer"] = zp_nummer
+    
+    # Mock API to return multiple contracts with same zaehlpunkt
+    contracts = multiple_contracts_response([zp_old], [zp_newer])
+    requests_mock.get(
+        parse.urljoin(API_URL_B2C, 'zaehlpunkte'),
+        request_headers={
+            'Authorization': f'Bearer {ACCESS_TOKEN}',
+            'X-Gateway-APIKey': B2C_API_KEY,
+        },
+        json=contracts
+    )
+    
+    sm = smartmeter().login()
+    customer_id, zp, anlagetype = sm.get_zaehlpunkt(zp_nummer)
+    
+    # Should use the first contract found (old)
+    assert customer_id == "1234567890"
+    assert zp == zp_nummer
+    assert anlagetype == const.AnlagenType.CONSUMING
+
+
+@pytest.mark.usefixtures("requests_mock")
+def test_multiple_contracts_bewegungsdaten_uses_active_contract(requests_mock: Mocker):
+    """Test that bewegungsdaten uses the active contract's customer_id when the same zaehlpunkt appears in multiple contracts"""
+    expect_login(requests_mock)
+    
+    # Create same zaehlpunkt in two contracts: old (inactive) and new (active)
+    zp_nummer = "AT0010000000000000001000011111111"
+    zp_old = zaehlpunkt_inactive()
+    zp_old["zaehlpunktnummer"] = zp_nummer
+    zp_new = enabled(zaehlpunkt())
+    zp_new["zaehlpunktnummer"] = zp_nummer
+    
+    # Mock API to return multiple contracts with same zaehlpunkt
+    contracts = multiple_contracts_response([zp_old], [zp_new])
+    requests_mock.get(
+        parse.urljoin(API_URL_B2C, 'zaehlpunkte'),
+        request_headers={
+            'Authorization': f'Bearer {ACCESS_TOKEN}',
+            'X-Gateway-APIKey': B2C_API_KEY,
+        },
+        json=contracts
+    )
+    
+    # Mock bewegungsdaten call with the NEW customer_id
+    date_from = dt.date(2023, 1, 1)
+    date_to = dt.date(2023, 1, 2)
+    expect_bewegungsdaten(requests_mock, "9876543210", zp_nummer)
+    
+    sm = smartmeter().login()
+    result = sm.bewegungsdaten(zp_nummer, date_from, date_to, const.ValueType.QUARTER_HOUR)
+    
+    # Should successfully call with the active contract's customer_id
+    assert result is not None
+    assert result["descriptor"]["zaehlpunktnummer"] == zp_nummer

@@ -327,13 +327,25 @@ class Smartmeter:
             zp = contracts[0]["zaehlpunkte"][0]["zaehlpunktnummer"]
             anlagetype = contracts[0]["zaehlpunkte"][0]["anlage"]["typ"]
         else:
-            customer_id = zp = anlagetype = None
+            # Collect all matching (contract, zp_detail) pairs
+            matches = []
             for contract in contracts:
                 zp_details = [z for z in contract["zaehlpunkte"] if z["zaehlpunktnummer"] == zaehlpunkt]
-                if len(zp_details) > 0:
-                    anlagetype = zp_details[0]["anlage"]["typ"]
-                    zp = zp_details[0]["zaehlpunktnummer"]
-                    customer_id = contract["geschaeftspartner"]
+                for zp_detail in zp_details:
+                    matches.append((contract, zp_detail))
+            
+            if len(matches) == 0:
+                customer_id = zp = anlagetype = None
+            else:
+                # Prefer active contract if available
+                active_matches = [m for m in matches if m[1].get("isActive", True)]
+                chosen_match = active_matches[0] if active_matches else matches[0]
+                
+                contract, zp_detail = chosen_match
+                customer_id = contract["geschaeftspartner"]
+                zp = zp_detail["zaehlpunktnummer"]
+                anlagetype = zp_detail["anlage"]["typ"]
+        
         return customer_id, zp, const.AnlagenType.from_str(anlagetype)
 
     def zaehlpunkte(self):

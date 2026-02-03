@@ -196,12 +196,33 @@ def zaehlpunkt():
 def zaehlpunkt_feeding():
     return dict(zp_feeding_template)
 
+def zaehlpunkt_inactive():
+    """Create an inactive zaehlpunkt (e.g., old contract)"""
+    zp = dict(zp_template)
+    zp["isActive"] = False
+    return zp
+
 def zaehlpunkt_response(zps=None):
     return [
         {
             "bezeichnung": "Margit Musterfrau, Kundennummer 1234567890",
             "geschaeftspartner": "1234567890",
             "zaehlpunkte": zps or []
+        }
+    ]
+
+def multiple_contracts_response(old_zps=None, new_zps=None):
+    """Helper to create response with multiple contracts (old and new) containing the same zaehlpunkt"""
+    return [
+        {
+            "bezeichnung": "Margit Musterfrau, Kundennummer 1234567890 (old contract)",
+            "geschaeftspartner": "1234567890",
+            "zaehlpunkte": old_zps or []
+        },
+        {
+            "bezeichnung": "Margit Musterfrau, Kundennummer 9876543210 (new contract)",
+            "geschaeftspartner": "9876543210",
+            "zaehlpunkte": new_zps or []
         }
     ]
 
